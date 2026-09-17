@@ -1,10 +1,11 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from kiteconnect import KiteConnect
 
 
 # =========================================================
-# PAGE SETTINGS
+# PAGE CONFIG
 # =========================================================
 
 st.set_page_config(
@@ -15,7 +16,31 @@ st.set_page_config(
 
 
 # =========================================================
-# TITLE
+# KITE CONNECTION
+# =========================================================
+
+def get_kite():
+
+    try:
+
+        api_key = st.secrets["KITE_API_KEY"]
+        access_token = st.secrets["KITE_ACCESS_TOKEN"]
+
+        kite = KiteConnect(api_key=api_key)
+        kite.set_access_token(access_token)
+
+        return kite
+
+    except Exception as e:
+
+        return None
+
+
+kite = get_kite()
+
+
+# =========================================================
+# HEADER
 # =========================================================
 
 st.title("📈 NIFTY Smart Technical Analysis Dashboard")
@@ -29,41 +54,67 @@ st.caption(
 # CONNECTION STATUS
 # =========================================================
 
-st.success("🟢 Dashboard Online")
+if kite is not None:
 
-st.info(
-    "⏳ Live Zerodha WebSocket connection अभी configure किया जाएगा."
-)
+    try:
+
+        profile = kite.profile()
+
+        st.success(
+            f"🟢 Zerodha Connected — {profile.get('user_name', 'User')}"
+        )
+
+    except Exception:
+
+        st.error(
+            "🔴 Zerodha connection failed. Access Token check करें."
+        )
+
+else:
+
+    st.warning(
+        "🟡 Zerodha credentials अभी configure नहीं हैं."
+    )
 
 
 # =========================================================
-# TOP MARKET CARDS
+# MARKET DATA
 # =========================================================
+
+st.divider()
+
+st.header("📊 Market Overview")
+
 
 col1, col2, col3, col4 = st.columns(4)
 
+
 with col1:
+
     st.metric(
         "NIFTY 50",
-        "—",
-        "Waiting"
+        "—"
     )
+
 
 with col2:
+
     st.metric(
         "BANKNIFTY",
-        "—",
-        "Waiting"
+        "—"
     )
+
 
 with col3:
+
     st.metric(
         "INDIA VIX",
-        "—",
-        "Waiting"
+        "—"
     )
 
+
 with col4:
+
     st.metric(
         "Market Status",
         "WAITING"
@@ -76,11 +127,13 @@ with col4:
 
 st.divider()
 
-st.header("📊 Technical Analysis")
+st.header("📈 Technical Analysis")
 
 
-data = {
+technical_data = {
+
     "Parameter": [
+
         "LTP",
         "RSI (14)",
         "VWAP",
@@ -92,8 +145,11 @@ data = {
         "ATR",
         "Volume",
         "Volume Change"
+
     ],
+
     "Value": [
+
         "—",
         "—",
         "—",
@@ -105,8 +161,11 @@ data = {
         "—",
         "—",
         "—"
+
     ],
+
     "Status": [
+
         "Waiting",
         "Waiting",
         "Waiting",
@@ -118,13 +177,18 @@ data = {
         "Waiting",
         "Waiting",
         "Waiting"
+
     ]
 }
 
-df = pd.DataFrame(data)
+
+technical_df = pd.DataFrame(
+    technical_data
+)
+
 
 st.dataframe(
-    df,
+    technical_df,
     use_container_width=True,
     hide_index=True
 )
@@ -138,71 +202,43 @@ st.divider()
 
 st.header("🎯 Signal Engine")
 
-signal_col1, signal_col2, signal_col3 = st.columns(3)
 
-with signal_col1:
+signal1, signal2, signal3 = st.columns(3)
+
+
+with signal1:
 
     st.subheader("NIFTY")
 
-    st.warning("🟡 NO TRADE")
+    st.warning(
+        "🟡 NO TRADE"
+    )
 
-    st.write("Confidence: — / 100")
+    st.write(
+        "Confidence: — / 100"
+    )
 
 
-with signal_col2:
+with signal2:
 
     st.subheader("BANKNIFTY")
 
-    st.warning("🟡 NO TRADE")
+    st.warning(
+        "🟡 NO TRADE"
+    )
 
-    st.write("Confidence: — / 100")
-
-
-with signal_col3:
-
-    st.subheader("Overall Market")
-
-    st.warning("🟡 WAITING")
+    st.write(
+        "Confidence: — / 100"
+    )
 
 
-# =========================================================
-# SIGNAL CONDITIONS
-# =========================================================
+with signal3:
 
-st.divider()
+    st.subheader("Market")
 
-st.header("🔍 Signal Conditions")
-
-conditions = {
-    "Condition": [
-        "Price > VWAP",
-        "RSI Confirmation",
-        "EMA Trend",
-        "Volume Breakout",
-        "Momentum",
-        "Market Breadth",
-        "Option OI Confirmation",
-        "Higher Timeframe Confirmation"
-    ],
-    "Result": [
-        "⏳",
-        "⏳",
-        "⏳",
-        "⏳",
-        "⏳",
-        "⏳",
-        "⏳",
-        "⏳"
-    ]
-}
-
-condition_df = pd.DataFrame(conditions)
-
-st.dataframe(
-    condition_df,
-    use_container_width=True,
-    hide_index=True
-)
+    st.warning(
+        "🟡 WAITING"
+    )
 
 
 # =========================================================
@@ -213,8 +249,11 @@ st.divider()
 
 st.header("🔗 Option Market Analysis")
 
+
 option_data = {
+
     "Parameter": [
+
         "ATM Strike",
         "Call OI",
         "Put OI",
@@ -223,8 +262,11 @@ option_data = {
         "PCR",
         "IV",
         "Max Pain"
+
     ],
+
     "Value": [
+
         "—",
         "—",
         "—",
@@ -233,10 +275,16 @@ option_data = {
         "—",
         "—",
         "—"
+
     ]
+
 }
 
-option_df = pd.DataFrame(option_data)
+
+option_df = pd.DataFrame(
+    option_data
+)
+
 
 st.dataframe(
     option_df,
@@ -253,31 +301,52 @@ st.divider()
 
 st.header("💰 Trade Plan")
 
-trade_col1, trade_col2, trade_col3, trade_col4 = st.columns(4)
 
-with trade_col1:
-    st.metric("Entry", "—")
+t1, t2, t3, t4 = st.columns(4)
 
-with trade_col2:
-    st.metric("Stop Loss", "—")
 
-with trade_col3:
-    st.metric("Target 1", "—")
+with t1:
 
-with trade_col4:
-    st.metric("Target 2", "—")
+    st.metric(
+        "Entry",
+        "—"
+    )
+
+
+with t2:
+
+    st.metric(
+        "Stop Loss",
+        "—"
+    )
+
+
+with t3:
+
+    st.metric(
+        "Target 1",
+        "—"
+    )
+
+
+with t4:
+
+    st.metric(
+        "Target 2",
+        "—"
+    )
 
 
 # =========================================================
-# LAST UPDATE
+# FOOTER
 # =========================================================
 
 st.divider()
 
 st.caption(
-    f"Dashboard Time: {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}"
+    f"Updated: {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}"
 )
 
 st.caption(
-    "Live market data और trading signals अगले चरण में Zerodha Kite Connect से जोड़े जाएंगे."
+    "Live market engine अगले चरण में activate किया जाएगा."
 )

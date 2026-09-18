@@ -47,7 +47,7 @@ except Exception:
 kite = KiteConnect(api_key=API_KEY)
 
 # =========================================================
-# REQUEST TOKEN
+# LOGIN
 # =========================================================
 
 request_token = st.query_params.get("request_token")
@@ -72,8 +72,9 @@ if request_token and st.session_state.access_token is None:
         st.rerun()
 
     except Exception as e:
-        st.error("❌ Zerodha Login / Token Exchange Failed")
+        st.error("❌ Zerodha Login Failed")
         st.code(str(e))
+        st.stop()
 
 # =========================================================
 # HEADER
@@ -86,25 +87,23 @@ st.caption(
 )
 
 # =========================================================
-# CONNECTION
+# LOGIN SCREEN
 # =========================================================
 
 if not st.session_state.access_token:
 
     st.warning("🟡 Zerodha अभी connected नहीं है.")
 
-    login_url = kite.login_url()
-
     st.link_button(
         "🔐 LOGIN WITH ZERODHA",
-        login_url,
+        kite.login_url(),
         use_container_width=True
     )
 
     st.stop()
 
 # =========================================================
-# SET TOKEN
+# SET ACCESS TOKEN
 # =========================================================
 
 kite.set_access_token(
@@ -112,7 +111,7 @@ kite.set_access_token(
 )
 
 # =========================================================
-# CHECK CONNECTION
+# CONNECTION CHECK
 # =========================================================
 
 try:
@@ -130,26 +129,25 @@ try:
 
 except Exception as e:
 
-    st.error("🔴 Access Token invalid या expired है.")
+    st.error("🔴 Zerodha Access Token invalid/expired.")
     st.code(str(e))
-
     st.stop()
 
 # =========================================================
 # REFRESH
 # =========================================================
 
-col_refresh, col_time = st.columns([1, 4])
+c1, c2 = st.columns([1, 4])
 
-with col_refresh:
+with c1:
 
     if st.button(
-        "🔄 Refresh Market Data",
+        "🔄 Refresh",
         use_container_width=True
     ):
         st.rerun()
 
-with col_time:
+with c2:
 
     st.caption(
         "Last Update: "
@@ -157,65 +155,45 @@ with col_time:
     )
 
 # =========================================================
-# FUNCTIONS
+# HELPER FUNCTIONS
 # =========================================================
 
-def calculate_rsi(series, period=14):
+def rsi(series, period=14):
 
     delta = series.diff()
 
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
 
-    avg_gain = gain.rolling(period).mean()
-    avg_loss = loss.rolling(period).mean()
+    avg_gain = gain.ewm(
+        alpha=1 / period,
+        min_periods=period,
+        adjust=False
+    ).mean()
+
+    avg_loss = loss.ewm(
+        alpha=1 / period,
+        min_periods=period,
+        adjust=False
+    ).mean()
 
     rs = avg_gain / avg_loss.replace(0, np.nan)
 
-    rsi = 100 - (100 / (1 + rs))
-
-    return rsi
+    return 100 - (100 / (1 + rs))
 
 
-def calculate_vwap(df):
-
-    if df.empty:
-        return np.nan
-
-    typical_price = (
-        df["high"] +
-        df["low"] +
-        df["close"]
-    ) / 3
-
-    cumulative_volume = df["volume"].cumsum()
-
-    cumulative_value = (
-        typical_price * df["volume"]
-    ).cumsum()
-
-    vwap = (
-        cumulative_value /
-        cumulative_volume.replace(0, np.nan)
-    )
-
-    return vwap.iloc[-1]
-
-
-def get_analysis(instrument_token):
+def get_index_analysis(token):
 
     try:
 
         end_date = datetime.now()
-        start_date = end_date - timedelta(days=5)
+        start_date = end_date - timedelta(days=7)
 
         candles = kite.historical_data(
-            instrument_token,
+            token,
             start_date,
             end_date,
-            "5minute",
-            continuous=False,
-            oi=False
+            "5minute"
         )
 
         df = pd.DataFrame(candles)
@@ -225,13 +203,8 @@ def get_analysis(instrument_token):
 
         df["date"] = pd.to_datetime(df["date"])
 
-        # RSI
-        df["rsi"] = calculate_rsi(
-            df["close"],
-            14
-        )
+        df["rsi"] = rsi(df["close"])
 
-        # EMA
         df["ema9"] = df["close"].ewm(
             span=9,
             adjust=False
@@ -254,67 +227,14 @@ def get_analysis(instrument_token):
 
         latest = df.iloc[-1]
 
-        rsi = latest["rsi"]
-
-        vwap = calculate_vwap(df)
-
-        volume = latest["volume"]
-
-        previous_volume = (
-            df.iloc[-2]["volume"]
-            if len(df) > 1
-            else np.nan
-        )
-
-        if previous_volume and previous_volume != 0:
-
-            volume_change = (
-                (volume - previous_volume)
-                / previous_volume
-            ) * 100
-
-        else:
-            volume_change = np.nan
-
-        # =================================================
-        # SIGNAL
-        # =================================================
-
-        price = latest["close"]
-
-        if (
-            pd.notna(rsi)
-            and pd.notna(vwap)
-            and rsi > 60
-            and price > vwap
-        ):
-
-            signal = "🟢 BUY"
-
-        elif (
-            pd.notna(rsi)
-            and pd.notna(vwap)
-            and rsi < 40
-            and price < vwap
-        ):
-
-            signal = "🔴 SELL"
-
-        else:
-
-            signal = "🟡 NO TRADE"
-
         return {
-            "price": price,
-            "rsi": rsi,
-            "vwap": vwap,
-            "ema9": latest["ema9"],
-            "ema20": latest["ema20"],
-            "ema50": latest["ema50"],
-            "ema200": latest["ema200"],
-            "volume": volume,
-            "volume_change": volume_change,
-            "signal": signal
+            "price": float(latest["close"]),
+            "rsi": float(latest["rsi"]),
+            "ema9": float(latest["ema9"]),
+            "ema20": float(latest["ema20"]),
+            "ema50": float(latest["ema50"]),
+            "ema200": float(latest["ema200"]),
+            "volume": float(latest["volume"])
         }
 
     except Exception as e:
@@ -325,8 +245,12 @@ def get_analysis(instrument_token):
 
 
 # =========================================================
-# LIVE QUOTES
+# MARKET OVERVIEW
 # =========================================================
+
+st.divider()
+
+st.header("📊 Market Overview")
 
 try:
 
@@ -336,49 +260,37 @@ try:
         "NSE:INDIA VIX"
     ])
 
+    nifty_live = quotes["NSE:NIFTY 50"]["last_price"]
+    bank_live = quotes["NSE:NIFTY BANK"]["last_price"]
+    vix_live = quotes["NSE:INDIA VIX"]["last_price"]
+
 except Exception as e:
 
-    st.error("❌ Live market data प्राप्त नहीं हो पाया.")
+    st.error("❌ Live market quote error")
     st.code(str(e))
     st.stop()
 
-# =========================================================
-# MARKET OVERVIEW
-# =========================================================
+m1, m2, m3, m4 = st.columns(4)
 
-st.divider()
-
-st.header("📊 Market Overview")
-
-col1, col2, col3, col4 = st.columns(4)
-
-nifty_price = quotes["NSE:NIFTY 50"]["last_price"]
-bank_price = quotes["NSE:NIFTY BANK"]["last_price"]
-vix_price = quotes["NSE:INDIA VIX"]["last_price"]
-
-with col1:
-
+with m1:
     st.metric(
         "NIFTY 50",
-        f"{nifty_price:,.2f}"
+        f"{nifty_live:,.2f}"
     )
 
-with col2:
-
+with m2:
     st.metric(
         "BANKNIFTY",
-        f"{bank_price:,.2f}"
+        f"{bank_live:,.2f}"
     )
 
-with col3:
-
+with m3:
     st.metric(
         "INDIA VIX",
-        f"{vix_price:,.2f}"
+        f"{vix_live:,.2f}"
     )
 
-with col4:
-
+with m4:
     st.metric(
         "Market Status",
         "LIVE 🟢"
@@ -392,8 +304,8 @@ st.divider()
 
 st.header("📈 Technical Analysis")
 
-nifty_data = get_analysis(256265)
-bank_data = get_analysis(260105)
+nifty_data = get_index_analysis(256265)
+bank_data = get_index_analysis(260105)
 
 # =========================================================
 # NIFTY
@@ -403,36 +315,27 @@ st.subheader("NIFTY 50")
 
 if nifty_data and "error" not in nifty_data:
 
-    a1, a2, a3, a4 = st.columns(4)
+    n1, n2, n3, n4 = st.columns(4)
 
-    with a1:
+    with n1:
         st.metric(
             "Price",
             f"{nifty_data['price']:,.2f}"
         )
 
-    with a2:
-
-        rsi_value = nifty_data["rsi"]
-
+    with n2:
         st.metric(
             "RSI (14)",
-            f"{rsi_value:.2f}"
-            if pd.notna(rsi_value)
-            else "—"
+            f"{nifty_data['rsi']:.2f}"
         )
 
-    with a3:
-
+    with n3:
         st.metric(
-            "VWAP",
-            f"{nifty_data['vwap']:,.2f}"
-            if pd.notna(nifty_data["vwap"])
-            else "—"
+            "EMA 20",
+            f"{nifty_data['ema20']:,.2f}"
         )
 
-    with a4:
-
+    with n4:
         st.metric(
             "Volume",
             f"{nifty_data['volume']:,.0f}"
@@ -443,10 +346,6 @@ if nifty_data and "error" not in nifty_data:
     )
 
     st.write(
-        f"EMA 20: `{nifty_data['ema20']:.2f}`"
-    )
-
-    st.write(
         f"EMA 50: `{nifty_data['ema50']:.2f}`"
     )
 
@@ -454,31 +353,12 @@ if nifty_data and "error" not in nifty_data:
         f"EMA 200: `{nifty_data['ema200']:.2f}`"
     )
 
-    if pd.notna(nifty_data["volume_change"]):
-
-        st.write(
-            f"Volume Change: "
-            f"`{nifty_data['volume_change']:.2f}%`"
-        )
-
-    if nifty_data["signal"] == "🟢 BUY":
-
-        st.success(nifty_data["signal"])
-
-    elif nifty_data["signal"] == "🔴 SELL":
-
-        st.error(nifty_data["signal"])
-
-    else:
-
-        st.warning(nifty_data["signal"])
-
 else:
 
     st.error(
-        nifty_data.get("error", "NIFTY data unavailable")
+        nifty_data.get("error", "NIFTY unavailable")
         if nifty_data
-        else "NIFTY data unavailable"
+        else "NIFTY unavailable"
     )
 
 # =========================================================
@@ -492,34 +372,24 @@ if bank_data and "error" not in bank_data:
     b1, b2, b3, b4 = st.columns(4)
 
     with b1:
-
         st.metric(
             "Price",
             f"{bank_data['price']:,.2f}"
         )
 
     with b2:
-
-        rsi_value = bank_data["rsi"]
-
         st.metric(
             "RSI (14)",
-            f"{rsi_value:.2f}"
-            if pd.notna(rsi_value)
-            else "—"
+            f"{bank_data['rsi']:.2f}"
         )
 
     with b3:
-
         st.metric(
-            "VWAP",
-            f"{bank_data['vwap']:,.2f}"
-            if pd.notna(bank_data["vwap"])
-            else "—"
+            "EMA 20",
+            f"{bank_data['ema20']:,.2f}"
         )
 
     with b4:
-
         st.metric(
             "Volume",
             f"{bank_data['volume']:,.0f}"
@@ -530,10 +400,6 @@ if bank_data and "error" not in bank_data:
     )
 
     st.write(
-        f"EMA 20: `{bank_data['ema20']:.2f}`"
-    )
-
-    st.write(
         f"EMA 50: `{bank_data['ema50']:.2f}`"
     )
 
@@ -541,32 +407,471 @@ if bank_data and "error" not in bank_data:
         f"EMA 200: `{bank_data['ema200']:.2f}`"
     )
 
-    if pd.notna(bank_data["volume_change"]):
-
-        st.write(
-            f"Volume Change: "
-            f"`{bank_data['volume_change']:.2f}%`"
-        )
-
-    if bank_data["signal"] == "🟢 BUY":
-
-        st.success(bank_data["signal"])
-
-    elif bank_data["signal"] == "🔴 SELL":
-
-        st.error(bank_data["signal"])
-
-    else:
-
-        st.warning(bank_data["signal"])
-
 else:
 
     st.error(
-        bank_data.get("error", "BANKNIFTY data unavailable")
+        bank_data.get("error", "BANKNIFTY unavailable")
         if bank_data
-        else "BANKNIFTY data unavailable"
+        else "BANKNIFTY unavailable"
     )
+
+# =========================================================
+# LOAD NFO INSTRUMENTS
+# =========================================================
+
+@st.cache_data(ttl=300)
+def load_nfo_instruments():
+
+    instruments = kite.instruments("NFO")
+
+    return pd.DataFrame(instruments)
+
+
+try:
+
+    nfo = load_nfo_instruments()
+
+except Exception as e:
+
+    st.error("❌ NFO instruments load नहीं हुए.")
+    st.code(str(e))
+    st.stop()
+
+# =========================================================
+# NIFTY OPTION EXPIRIES
+# =========================================================
+
+st.divider()
+
+st.header("🔗 NIFTY Option Chain")
+
+nifty_options = nfo[
+    (nfo["name"] == "NIFTY") &
+    (nfo["instrument_type"].isin(["CE", "PE"]))
+].copy()
+
+if nifty_options.empty:
+
+    st.error("❌ NIFTY option instruments नहीं मिले.")
+    st.stop()
+
+nifty_options["expiry"] = pd.to_datetime(
+    nifty_options["expiry"]
+)
+
+today = pd.Timestamp.now().normalize()
+
+future_expiries = sorted(
+    nifty_options.loc[
+        nifty_options["expiry"] >= today,
+        "expiry"
+    ].unique()
+)
+
+if not future_expiries:
+
+    st.error("❌ कोई future NIFTY expiry नहीं मिली.")
+    st.stop()
+
+expiry_options = [
+    x.strftime("%d-%m-%Y")
+    for x in future_expiries
+]
+
+selected_expiry_text = st.selectbox(
+    "NIFTY Expiry",
+    expiry_options
+)
+
+selected_expiry = pd.to_datetime(
+    selected_expiry_text,
+    format="%d-%m-%Y"
+)
+
+expiry_df = nifty_options[
+    nifty_options["expiry"] == selected_expiry
+].copy()
+
+# =========================================================
+# FIND ATM
+# =========================================================
+
+try:
+
+    spot = float(
+        kite.ltp("NSE:NIFTY 50")[
+            "NSE:NIFTY 50"
+        ]["last_price"]
+    )
+
+except Exception:
+
+    spot = nifty_live
+
+strikes = sorted(
+    expiry_df["strike"].unique()
+)
+
+atm_strike = min(
+    strikes,
+    key=lambda x: abs(x - spot)
+)
+
+# =========================================================
+# ATM ±3
+# =========================================================
+
+nearest_index = strikes.index(atm_strike)
+
+start_index = max(
+    0,
+    nearest_index - 3
+)
+
+end_index = min(
+    len(strikes),
+    nearest_index + 4
+)
+
+selected_strikes = strikes[
+    start_index:end_index
+]
+
+st.write(
+    f"**NIFTY Spot:** `{spot:,.2f}`"
+)
+
+st.write(
+    f"**ATM Strike:** `{atm_strike:,.0f}`"
+)
+
+# =========================================================
+# OPTION CONTRACTS
+# =========================================================
+
+selected_contracts = expiry_df[
+    expiry_df["strike"].isin(selected_strikes)
+].copy()
+
+ce_df = selected_contracts[
+    selected_contracts["instrument_type"] == "CE"
+].copy()
+
+pe_df = selected_contracts[
+    selected_contracts["instrument_type"] == "PE"
+].copy()
+
+ce_df = ce_df.sort_values("strike")
+pe_df = pe_df.sort_values("strike")
+
+# =========================================================
+# LIVE QUOTES
+# =========================================================
+
+all_symbols = []
+
+for _, row in selected_contracts.iterrows():
+
+    all_symbols.append(
+        f"NFO:{row['tradingsymbol']}"
+    )
+
+quote_data = {}
+
+try:
+
+    if all_symbols:
+
+        quote_data = kite.quote(all_symbols)
+
+except Exception as e:
+
+    st.error("❌ Option quotes प्राप्त नहीं हुए.")
+    st.code(str(e))
+
+# =========================================================
+# BUILD OPTION CHAIN
+# =========================================================
+
+rows = []
+
+for strike in selected_strikes:
+
+    ce_row = ce_df[
+        ce_df["strike"] == strike
+    ]
+
+    pe_row = pe_df[
+        pe_df["strike"] == strike
+    ]
+
+    ce_symbol = None
+    pe_symbol = None
+
+    ce_ltp = np.nan
+    pe_ltp = np.nan
+
+    ce_oi = 0
+    pe_oi = 0
+
+    ce_volume = 0
+    pe_volume = 0
+
+    ce_oi_change = 0
+    pe_oi_change = 0
+
+    ce_iv = np.nan
+    pe_iv = np.nan
+
+    # ---------------- CE ----------------
+
+    if not ce_row.empty:
+
+        ce_symbol = (
+            f"NFO:{ce_row.iloc[0]['tradingsymbol']}"
+        )
+
+        if ce_symbol in quote_data:
+
+            q = quote_data[ce_symbol]
+
+            ce_ltp = q.get(
+                "last_price",
+                np.nan
+            )
+
+            ce_oi = q.get(
+                "oi",
+                0
+            )
+
+            ce_volume = q.get(
+                "volume",
+                0
+            )
+
+            ce_iv = q.get(
+                "iv",
+                np.nan
+            )
+
+            ohlc = q.get("ohlc", {})
+
+            prev_close = ohlc.get(
+                "close",
+                0
+            )
+
+            # Quote API does not directly give
+            # previous OI change for every response.
+            # We keep current OI here.
+            ce_oi_change = 0
+
+    # ---------------- PE ----------------
+
+    if not pe_row.empty:
+
+        pe_symbol = (
+            f"NFO:{pe_row.iloc[0]['tradingsymbol']}"
+        )
+
+        if pe_symbol in quote_data:
+
+            q = quote_data[pe_symbol]
+
+            pe_ltp = q.get(
+                "last_price",
+                np.nan
+            )
+
+            pe_oi = q.get(
+                "oi",
+                0
+            )
+
+            pe_volume = q.get(
+                "volume",
+                0
+            )
+
+            pe_iv = q.get(
+                "iv",
+                np.nan
+            )
+
+            pe_oi_change = 0
+
+    rows.append({
+
+        "CE LTP": ce_ltp,
+        "CE OI": ce_oi,
+        "CE Volume": ce_volume,
+        "Strike": strike,
+        "PE Volume": pe_volume,
+        "PE OI": pe_oi,
+        "PE LTP": pe_ltp,
+        "CE IV": ce_iv,
+        "PE IV": pe_iv
+
+    })
+
+option_chain = pd.DataFrame(rows)
+
+# =========================================================
+# PCR
+# =========================================================
+
+total_ce_oi = option_chain["CE OI"].sum()
+total_pe_oi = option_chain["PE OI"].sum()
+
+if total_ce_oi > 0:
+
+    pcr = (
+        total_pe_oi /
+        total_ce_oi
+    )
+
+else:
+
+    pcr = np.nan
+
+# =========================================================
+# MAX PAIN
+# =========================================================
+
+def calculate_max_pain(df):
+
+    strikes = df["Strike"].tolist()
+
+    pain_values = {}
+
+    for settlement in strikes:
+
+        total_pain = 0
+
+        for _, row in df.iterrows():
+
+            strike = row["Strike"]
+
+            ce_oi = row["CE OI"]
+            pe_oi = row["PE OI"]
+
+            if settlement > strike:
+
+                total_pain += (
+                    settlement - strike
+                ) * ce_oi
+
+            if settlement < strike:
+
+                total_pain += (
+                    strike - settlement
+                ) * pe_oi
+
+        pain_values[settlement] = total_pain
+
+    if pain_values:
+
+        return min(
+            pain_values,
+            key=pain_values.get
+        )
+
+    return np.nan
+
+
+max_pain = calculate_max_pain(
+    option_chain
+)
+
+# =========================================================
+# SUMMARY
+# =========================================================
+
+o1, o2, o3 = st.columns(3)
+
+with o1:
+
+    st.metric(
+        "ATM Strike",
+        f"{atm_strike:,.0f}"
+    )
+
+with o2:
+
+    st.metric(
+        "PCR",
+        f"{pcr:.2f}"
+        if pd.notna(pcr)
+        else "—"
+    )
+
+with o3:
+
+    st.metric(
+        "Max Pain",
+        f"{max_pain:,.0f}"
+        if pd.notna(max_pain)
+        else "—"
+    )
+
+# =========================================================
+# OPTION TABLE
+# =========================================================
+
+display_df = option_chain.copy()
+
+display_df["CE LTP"] = display_df[
+    "CE LTP"
+].round(2)
+
+display_df["PE LTP"] = display_df[
+    "PE LTP"
+].round(2)
+
+display_df["CE IV"] = display_df[
+    "CE IV"
+].round(2)
+
+display_df["PE IV"] = display_df[
+    "PE IV"
+].round(2)
+
+display_df["CE OI"] = display_df[
+    "CE OI"
+].astype(int)
+
+display_df["PE OI"] = display_df[
+    "PE OI"
+].astype(int)
+
+display_df["CE Volume"] = display_df[
+    "CE Volume"
+].astype(int)
+
+display_df["PE Volume"] = display_df[
+    "PE Volume"
+].astype(int)
+
+display_df = display_df[
+    [
+        "CE LTP",
+        "CE OI",
+        "CE Volume",
+        "CE IV",
+        "Strike",
+        "PE IV",
+        "PE Volume",
+        "PE OI",
+        "PE LTP"
+    ]
+]
+
+st.dataframe(
+    display_df,
+    use_container_width=True,
+    hide_index=True
+)
 
 # =========================================================
 # SIGNAL ENGINE
@@ -582,54 +887,69 @@ with s1:
 
     st.subheader("NIFTY")
 
-    if nifty_data and "signal" in nifty_data:
+    if nifty_data and "error" not in nifty_data:
+
+        r = nifty_data["rsi"]
+
+        if r > 60:
+
+            signal = "🟢 BULLISH CONDITION"
+
+        elif r < 40:
+
+            signal = "🔴 BEARISH CONDITION"
+
+        else:
+
+            signal = "🟡 NEUTRAL"
 
         st.write(
-            f"Signal: **{nifty_data['signal']}**"
+            f"RSI: `{r:.2f}`"
         )
 
-        if pd.notna(nifty_data["rsi"]):
-
-            st.write(
-                f"RSI: `{nifty_data['rsi']:.2f}`"
-            )
+        st.info(signal)
 
 with s2:
 
     st.subheader("BANKNIFTY")
 
-    if bank_data and "signal" in bank_data:
+    if bank_data and "error" not in bank_data:
+
+        r = bank_data["rsi"]
+
+        if r > 60:
+
+            signal = "🟢 BULLISH CONDITION"
+
+        elif r < 40:
+
+            signal = "🔴 BEARISH CONDITION"
+
+        else:
+
+            signal = "🟡 NEUTRAL"
 
         st.write(
-            f"Signal: **{bank_data['signal']}**"
+            f"RSI: `{r:.2f}`"
         )
 
-        if pd.notna(bank_data["rsi"]):
-
-            st.write(
-                f"RSI: `{bank_data['rsi']:.2f}`"
-            )
+        st.info(signal)
 
 with s3:
 
-    st.subheader("Overall Market")
+    st.subheader("OPTION MARKET")
 
-    st.info(
-        "Live technical analysis active"
+    st.write(
+        f"PCR: `{pcr:.2f}`"
+        if pd.notna(pcr)
+        else "PCR: —"
     )
 
-# =========================================================
-# OPTION ANALYSIS - NEXT STAGE
-# =========================================================
-
-st.divider()
-
-st.header("🔗 Option Market Analysis")
-
-st.info(
-    "Option Chain, ATM ±3 strikes, PCR, OI Change, "
-    "Volume Change और Max Pain अगले चरण में जोड़े जाएंगे."
-)
+    st.write(
+        f"Max Pain: `{max_pain:,.0f}`"
+        if pd.notna(max_pain)
+        else "Max Pain: —"
+    )
 
 # =========================================================
 # FOOTER
@@ -638,6 +958,5 @@ st.info(
 st.divider()
 
 st.caption(
-    "⚡ Zerodha Kite Connect • Live Market Data • "
-    "Technical Analysis"
-)
+    "⚡ Zerodha Kite Connect • Live Market Analysis"
+    )

@@ -1122,29 +1122,232 @@ all_strikes = sorted(
 
 display_rows = []
 
-for strike in all_strikes:
+# =========================================================
+# NIFTY OPTION CHAIN
+# =========================================================
 
-    row = {
-        "Strike": strike,
+st.subheader("📊 NIFTY OPTION CHAIN")
 
-        "CE LTP": ce_data.get(strike, {}).get("CE LTP"),
-        "CE OI": ce_data.get(strike, {}).get("CE OI"),
-        "CE OI Chg %": ce_data.get(strike, {}).get("CE OI Chg %"),
-        "CE Volume": ce_data.get(strike, {}).get("CE Volume"),
-        "CE Vol Chg %": ce_data.get(strike, {}).get("CE Vol Chg %"),
-        "CE IV": ce_data.get(strike, {}).get("CE IV"),
+# NIFTY expiry
+nifty_expiries = sorted(
+    nfo_df[
+        (nfo_df["name"] == "NIFTY") &
+        (nfo_df["instrument_type"].isin(["CE", "PE"]))
+    ]["expiry"].dropna().unique()
+)
 
-        "PE LTP": pe_data.get(strike, {}).get("PE LTP"),
-        "PE OI": pe_data.get(strike, {}).get("PE OI"),
-        "PE OI Chg %": pe_data.get(strike, {}).get("PE OI Chg %"),
-        "PE Volume": pe_data.get(strike, {}).get("PE Volume"),
-        "PE Vol Chg %": pe_data.get(strike, {}).get("PE Vol Chg %"),
-        "PE IV": pe_data.get(strike, {}).get("PE IV")
+if not nifty_expiries:
+    st.error("NIFTY option expiry नहीं मिली।")
+    st.stop()
+
+selected_expiry = st.selectbox(
+    "NIFTY Expiry",
+    nifty_expiries
+)
+
+spot = float(nifty_spot)
+
+# ATM strike
+strike_step = 50
+atm_strike = round(
+    spot / strike_step
+) * strike_step
+
+st.write(
+    f"**NIFTY Spot:** {spot:,.2f}"
+)
+
+st.write(
+    f"**ATM Strike:** {atm_strike:,.0f}"
+)
+
+# ATM ±3
+selected_strikes = [
+    atm_strike + (i * strike_step)
+    for i in range(-3, 4)
+]
+
+chain_df = nfo_df[
+    (nfo_df["name"] == "NIFTY") &
+    (nfo_df["expiry"] == selected_expiry) &
+    (nfo_df["instrument_type"].isin(["CE", "PE"])) &
+    (nfo_df["strike"].isin(selected_strikes))
+].copy()
+
+# =========================================================
+# LIVE QUOTES
+# =========================================================
+
+symbols = []
+
+for _, row in chain_df.iterrows():
+
+    symbols.append(
+        f"NFO:{row['tradingsymbol']}"
+    )
+
+live_quotes = {}
+
+if symbols:
+
+    try:
+
+        quote_response = kite.quote(symbols)
+
+        live_quotes = quote_response or {}
+
+    except Exception as e:
+
+        st.error(
+            f"Option quote error: {e}"
+        )
+
+# =========================================================
+# BUILD OPTION DATA
+# =========================================================
+
+rows = []
+
+for _, row in chain_df.iterrows():
+
+    symbol = f"NFO:{row['tradingsymbol']}"
+
+    quote = live_quotes.get(
+        symbol,
+        {}
+    )
+
+    ltp = float(
+        quote.get("last_price", 0) or 0
+    )
+
+    oi = int(
+        quote.get("oi", 0) or 0
+    )
+
+    volume = int(
+        quote.get("volume", 0) or 0
+    )
+
+    # IV is model calculated
+    iv = calculate_iv(
+        ltp,
+        spot,
+        float(row["strike"]),
+        time_years,
+        row["instrument_type"]
+    )
+
+    rows.append({
+
+        "Strike": float(
+            row["strike"]
+        ),
+
+        "Type": row["instrument_type"],
+
+        "Symbol": symbol,
+
+        "LTP": ltp,
+
+        "OI": oi,
+
+        "OI Chg %": 0.0,
+
+        "Volume": volume,
+
+        "Vol Chg %": 0.0,
+
+        "IV": iv
+
+    })
+
+option_df = pd.DataFrame(
+    rows
+)
+
+# =========================================================
+# DISPLAY CE / PE
+# =========================================================
+
+ce_df = option_df[
+    option_df["Type"] == "CE"
+].copy()
+
+pe_df = option_df[
+    option_df["Type"] == "PE"
+].copy()
+
+ce_df = ce_df.rename(
+    columns={
+
+        "LTP": "CE LTP",
+
+        "OI": "CE OI",
+
+        "OI Chg %": "CE OI Chg %",
+
+        "Volume": "CE Volume",
+
+        "Vol Chg %": "CE Vol Chg %",
+
+        "IV": "CE IV"
+
     }
+)
 
-    display_rows.append(row)
+pe_df = pe_df.rename(
+    columns={
 
-final_table = pd.DataFrame(display_rows)
+        "LTP": "PE LTP",
+
+        "OI": "PE OI",
+
+        "OI Chg %": "PE OI Chg %",
+
+        "Volume": "PE Volume",
+
+        "Vol Chg %": "PE Vol Chg %",
+
+        "IV": "PE IV"
+
+    }
+)
+
+ce_df = ce_df[
+    [
+        "Strike",
+        "CE LTP",
+        "CE OI",
+        "CE OI Chg %",
+        "CE Volume",
+        "CE Vol Chg %",
+        "CE IV"
+    ]
+]
+
+pe_df = pe_df[
+    [
+        "Strike",
+        "PE LTP",
+        "PE OI",
+        "PE OI Chg %",
+        "PE Volume",
+        "PE Vol Chg %",
+        "PE IV"
+    ]
+]
+
+final_table = pd.merge(
+    ce_df,
+    pe_df,
+    on="Strike",
+    how="outer"
+)
+
+final_table = final_table.sort_values(
+    "Strike"
+)
 
 st.dataframe(
     final_table,
@@ -1153,8 +1356,9 @@ st.dataframe(
 )
 
 # =========================================================
-# DATA DIAGNOSTIC
+# OPTION DATA STATUS
 # =========================================================
+
 st.subheader("🔎 Option Data Status")
 
 quote_count = len(live_quotes)
@@ -1188,19 +1392,6 @@ with d3:
     st.metric(
         "Contracts with Volume",
         f"{non_zero_volume}/{len(option_df)}"
-    )
-
-if quote_count == 0:
-
-    st.error(
-        "Zerodha से ATM ±3 option quotes नहीं मिले।"
-    )
-
-elif non_zero_oi == 0:
-
-    st.warning(
-        "Quote response मिला है लेकिन OI अभी 0 है। "
-        "नीचे raw response diagnostic देखें।"
     )
 
 # =========================================================

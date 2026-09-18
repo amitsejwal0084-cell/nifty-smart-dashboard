@@ -1027,6 +1027,11 @@ st.session_state.option_snapshot[
 option_df = pd.DataFrame(
     rows
 )
+st.write("DEBUG - LIVE OPTION DATA")
+st.dataframe(
+    option_df[["Strike", "Type", "LTP", "OI", "Volume"]],
+    use_container_width=True
+)
 
 # =========================================================
 # DISPLAY CE / PE SIDE BY SIDE

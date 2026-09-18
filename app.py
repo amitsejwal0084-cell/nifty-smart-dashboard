@@ -2,9 +2,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import math
-from datetime import datetime, date
+from datetime import datetime
 from kiteconnect import KiteConnect
-from scipy.stats import norm
 
 # =========================================================
 # PAGE CONFIG
@@ -34,7 +33,9 @@ try:
     API_KEY = st.secrets["KITE_API_KEY"]
     API_SECRET = st.secrets["KITE_API_SECRET"]
 except Exception:
-    st.error("KITE_API_KEY / KITE_API_SECRET Streamlit Secrets में नहीं मिले।")
+    st.error(
+        "KITE_API_KEY / KITE_API_SECRET Streamlit Secrets में नहीं मिले।"
+    )
     st.stop()
 
 kite = KiteConnect(api_key=API_KEY)
@@ -71,13 +72,13 @@ if request_token and not st.session_state.access_token:
 # =========================================================
 if not st.session_state.access_token:
 
-    st.warning("🟡 Zerodha credentials अभी configure नहीं हैं।")
-
-    login_url = kite.login_url()
+    st.warning(
+        "🟡 Zerodha credentials अभी configure नहीं हैं।"
+    )
 
     st.link_button(
         "🔐 LOGIN WITH ZERODHA",
-        login_url,
+        kite.login_url(),
         use_container_width=True
     )
 
@@ -98,7 +99,8 @@ try:
     profile = kite.profile()
 
     st.success(
-        f"🟢 Zerodha Connected — {profile.get('user_name', 'User')}"
+        f"🟢 Zerodha Connected — "
+        f"{profile.get('user_name', 'User')}"
     )
 
     st.caption(
@@ -136,7 +138,10 @@ with col_refresh:
 with col_time:
 
     st.write(
-        f"Last Update: {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}"
+        "Last Update: "
+        + datetime.now().strftime(
+            "%d-%m-%Y %H:%M:%S"
+        )
     )
 
 # =========================================================
@@ -152,9 +157,17 @@ try:
         "NSE:INDIA VIX"
     ])
 
-    nifty_spot = market_quotes["NSE:NIFTY 50"]["last_price"]
-    banknifty_spot = market_quotes["NSE:NIFTY BANK"]["last_price"]
-    vix = market_quotes["NSE:INDIA VIX"]["last_price"]
+    nifty_spot = float(
+        market_quotes["NSE:NIFTY 50"]["last_price"]
+    )
+
+    banknifty_spot = float(
+        market_quotes["NSE:NIFTY BANK"]["last_price"]
+    )
+
+    vix = float(
+        market_quotes["NSE:INDIA VIX"]["last_price"]
+    )
 
     c1, c2, c3, c4 = st.columns(4)
 
@@ -199,11 +212,14 @@ def calculate_rsi(series, period=14):
     avg_gain = gain.rolling(period).mean()
     avg_loss = loss.rolling(period).mean()
 
-    rs = avg_gain / avg_loss.replace(0, np.nan)
+    rs = (
+        avg_gain /
+        avg_loss.replace(0, np.nan)
+    )
 
-    rsi = 100 - (100 / (1 + rs))
-
-    return rsi
+    return 100 - (
+        100 / (1 + rs)
+    )
 
 
 def calculate_ema(series, period):
@@ -229,9 +245,9 @@ def get_index_technical(
             pd.Timedelta(days=7)
         ).strftime("%Y-%m-%d")
 
-        to_date = (
-            pd.Timestamp.now()
-        ).strftime("%Y-%m-%d")
+        to_date = pd.Timestamp.now().strftime(
+            "%Y-%m-%d"
+        )
 
         candles = kite.historical_data(
             instrument_token,
@@ -273,12 +289,15 @@ def get_index_technical(
         latest = df.iloc[-1]
 
         return {
-
-            "price": float(latest["close"]),
+            "price": float(
+                latest["close"]
+            ),
 
             "rsi": float(
                 latest["rsi"]
-            ) if not pd.isna(latest["rsi"]) else np.nan,
+            ) if not pd.isna(
+                latest["rsi"]
+            ) else np.nan,
 
             "ema9": float(
                 latest["ema9"]
@@ -299,7 +318,6 @@ def get_index_technical(
             "volume": float(
                 latest.get("volume", 0)
             )
-
         }
 
     except Exception as e:
@@ -326,12 +344,15 @@ bank_technical = get_index_technical(
     "BANKNIFTY"
 )
 
+
 def show_technical(
     title,
     data
 ):
 
-    st.markdown(f"### {title}")
+    st.markdown(
+        f"### {title}"
+    )
 
     if not data:
 
@@ -369,7 +390,9 @@ def show_technical(
 
     cols[1].metric(
         "RSI (14)",
-        f"{rsi:.2f}" if not pd.isna(rsi) else "-"
+        f"{rsi:.2f}"
+        if not pd.isna(rsi)
+        else "-"
     )
 
     cols[2].metric(
@@ -423,11 +446,13 @@ show_technical(
 @st.cache_data(ttl=300)
 def load_nfo_instruments():
 
-    instruments = kite.instruments("NFO")
+    instruments = kite.instruments(
+        "NFO"
+    )
 
-    df = pd.DataFrame(instruments)
-
-    return df
+    return pd.DataFrame(
+        instruments
+    )
 
 
 try:
@@ -445,11 +470,17 @@ except Exception as e:
 # =========================================================
 # NIFTY OPTIONS
 # =========================================================
-st.subheader("📊 NIFTY OPTION CHAIN")
+st.subheader(
+    "📊 NIFTY OPTION CHAIN"
+)
 
 nifty_options = nfo[
     (nfo["name"] == "NIFTY") &
-    (nfo["instrument_type"].isin(["CE", "PE"]))
+    (
+        nfo["instrument_type"].isin(
+            ["CE", "PE"]
+        )
+    )
 ].copy()
 
 if nifty_options.empty:
@@ -500,7 +531,8 @@ selected_expiry = pd.to_datetime(
 )
 
 expiry_chain = nifty_options[
-    nifty_options["expiry"] == selected_expiry
+    nifty_options["expiry"] ==
+    selected_expiry
 ].copy()
 
 # =========================================================
@@ -513,7 +545,8 @@ strikes = sorted(
 atm_strike = min(
     strikes,
     key=lambda x: abs(
-        float(x) - float(nifty_spot)
+        float(x) -
+        float(nifty_spot)
     )
 )
 
@@ -538,8 +571,7 @@ symbols = [
     for x in expiry_chain["tradingsymbol"]
 ]
 
-# Kite quote supports limited instruments per request.
-# We process in batches.
+
 def get_quotes_in_batches(
     symbols,
     batch_size=400
@@ -581,7 +613,7 @@ with st.spinner(
     )
 
 # =========================================================
-# BUILD FULL CHAIN DATA
+# BUILD FULL CHAIN
 # =========================================================
 records = []
 
@@ -602,7 +634,9 @@ for _, row in expiry_chain.iterrows():
             row["strike"]
         ),
 
-        "type": row["instrument_type"],
+        "type": row[
+            "instrument_type"
+        ],
 
         "tradingsymbol": ts,
 
@@ -611,17 +645,25 @@ for _, row in expiry_chain.iterrows():
         ],
 
         "ltp": float(
-            q.get("last_price", 0) or 0
+            q.get(
+                "last_price",
+                0
+            ) or 0
         ),
 
         "oi": float(
-            q.get("oi", 0) or 0
+            q.get(
+                "oi",
+                0
+            ) or 0
         ),
 
         "volume": float(
-            q.get("volume", 0) or 0
+            q.get(
+                "volume",
+                0
+            ) or 0
         )
-
     })
 
 full_chain = pd.DataFrame(
@@ -629,7 +671,20 @@ full_chain = pd.DataFrame(
 )
 
 # =========================================================
-# BLACK-SCHOLES IV
+# NORMAL CDF WITHOUT SCIPY
+# =========================================================
+def normal_cdf(x):
+
+    return 0.5 * (
+        1 +
+        math.erf(
+            x / math.sqrt(2)
+        )
+    )
+
+
+# =========================================================
+# BLACK-SCHOLES PRICE
 # =========================================================
 def black_scholes_price(
     S,
@@ -640,42 +695,75 @@ def black_scholes_price(
     option_type
 ):
 
-    if T <= 0 or sigma <= 0:
+    if (
+        T <= 0
+        or sigma <= 0
+    ):
+
+        if option_type == "CE":
+
+            return max(
+                0,
+                S - K
+            )
 
         return max(
-            0,
-            S - K
-        ) if option_type == "CE" else max(
             0,
             K - S
         )
 
-    d1 = (
-        math.log(S / K)
-        + (r + 0.5 * sigma * sigma) * T
-    ) / (
-        sigma * math.sqrt(T)
-    )
+    try:
 
-    d2 = d1 - sigma * math.sqrt(T)
-
-    if option_type == "CE":
-
-        return (
-            S * norm.cdf(d1)
-            - K * math.exp(-r * T)
-            * norm.cdf(d2)
+        d1 = (
+            math.log(S / K)
+            +
+            (
+                r +
+                0.5 *
+                sigma *
+                sigma
+            ) * T
+        ) / (
+            sigma *
+            math.sqrt(T)
         )
 
-    else:
-
-        return (
-            K * math.exp(-r * T)
-            * norm.cdf(-d2)
-            - S * norm.cdf(-d1)
+        d2 = (
+            d1 -
+            sigma *
+            math.sqrt(T)
         )
 
+        if option_type == "CE":
 
+            return (
+                S *
+                normal_cdf(d1)
+                -
+                K *
+                math.exp(-r * T)
+                *
+                normal_cdf(d2)
+            )
+
+        return (
+            K *
+            math.exp(-r * T)
+            *
+            normal_cdf(-d2)
+            -
+            S *
+            normal_cdf(-d1)
+        )
+
+    except Exception:
+
+        return np.nan
+
+
+# =========================================================
+# IMPLIED VOLATILITY
+# =========================================================
 def calculate_iv(
     market_price,
     S,
@@ -694,15 +782,21 @@ def calculate_iv(
 
         return np.nan
 
-    intrinsic = max(
-        0,
-        S - K
-    ) if option_type == "CE" else max(
-        0,
-        K - S
+    intrinsic = (
+        max(
+            0,
+            S - K
+        )
+        if option_type == "CE"
+        else
+        max(
+            0,
+            K - S
+        )
     )
 
-    if market_price <= intrinsic:
+    if market_price < intrinsic:
+
         return np.nan
 
     low = 0.0001
@@ -710,10 +804,45 @@ def calculate_iv(
 
     try:
 
+        low_price = black_scholes_price(
+            S,
+            K,
+            T,
+            r,
+            low,
+            option_type
+        )
+
+        high_price = black_scholes_price(
+            S,
+            K,
+            T,
+            r,
+            high,
+            option_type
+        )
+
+        if (
+            np.isnan(low_price)
+            or
+            np.isnan(high_price)
+        ):
+
+            return np.nan
+
+        if market_price < low_price:
+
+            return np.nan
+
+        if market_price > high_price:
+
+            return np.nan
+
         for _ in range(100):
 
             mid = (
-                low + high
+                low +
+                high
             ) / 2
 
             price = black_scholes_price(
@@ -725,6 +854,10 @@ def calculate_iv(
                 option_type
             )
 
+            if np.isnan(price):
+
+                return np.nan
+
             if price > market_price:
 
                 high = mid
@@ -734,7 +867,10 @@ def calculate_iv(
                 low = mid
 
         return (
-            (low + high) / 2
+            (
+                low +
+                high
+            ) / 2
         ) * 100
 
     except Exception:
@@ -745,22 +881,30 @@ def calculate_iv(
 # =========================================================
 # TIME TO EXPIRY
 # =========================================================
-expiry_datetime = pd.Timestamp(
-    selected_expiry
-) + pd.Timedelta(
-    hours=15,
-    minutes=30
+expiry_datetime = (
+    pd.Timestamp(
+        selected_expiry
+    )
+    +
+    pd.Timedelta(
+        hours=15,
+        minutes=30
+    )
 )
 
 now = pd.Timestamp.now()
 
 T = max(
     (
-        expiry_datetime - now
+        expiry_datetime -
+        now
     ).total_seconds(),
     0
 ) / (
-    365 * 24 * 60 * 60
+    365 *
+    24 *
+    60 *
+    60
 )
 
 # =========================================================
@@ -830,7 +974,8 @@ for test_strike in pain_strikes:
             ce_chain["strike"].values,
             0
         )
-        * ce_chain["oi"].values
+        *
+        ce_chain["oi"].values
     ).sum()
 
     put_pain = (
@@ -839,7 +984,8 @@ for test_strike in pain_strikes:
             test_strike,
             0
         )
-        * pe_chain["oi"].values
+        *
+        pe_chain["oi"].values
     ).sum()
 
     total_pain = (
@@ -849,7 +995,8 @@ for test_strike in pain_strikes:
 
     if (
         minimum_pain is None
-        or total_pain < minimum_pain
+        or
+        total_pain < minimum_pain
     ):
 
         minimum_pain = total_pain
@@ -867,7 +1014,9 @@ s1.metric(
 
 s2.metric(
     "PCR",
-    f"{pcr:.2f}" if not pd.isna(pcr) else "-"
+    f"{pcr:.2f}"
+    if not pd.isna(pcr)
+    else "-"
 )
 
 s3.metric(
@@ -883,30 +1032,31 @@ s4.metric(
 )
 
 # =========================================================
-# ATM ±3 TABLE
+# ATM ±3 STRIKES
 # =========================================================
-display_strikes = [
-    x for x in strikes
-    if abs(
-        float(x) - float(atm_strike)
-    ) <= 3 * (
-        min(
-            [
-                strikes[i + 1] - strikes[i]
-                for i in range(len(strikes) - 1)
-            ]
-        )
-        if len(strikes) > 1
-        else 50
-    )
-]
+if len(strikes) > 1:
 
-# Keep closest ATM ±3 actual strikes
+    strike_gap = min(
+        [
+            strikes[i + 1] -
+            strikes[i]
+            for i in range(
+                len(strikes) - 1
+            )
+        ]
+    )
+
+else:
+
+    strike_gap = 50
+
 sorted_by_distance = sorted(
     strikes,
-    key=lambda x: abs(
-        float(x) - float(atm_strike)
-    )
+    key=lambda x:
+        abs(
+            float(x) -
+            float(atm_strike)
+        )
 )
 
 display_strikes = sorted(
@@ -918,12 +1068,14 @@ rows = []
 for strike in display_strikes:
 
     ce = full_chain[
-        (full_chain["strike"] == strike) &
+        (full_chain["strike"] == strike)
+        &
         (full_chain["type"] == "CE")
     ]
 
     pe = full_chain[
-        (full_chain["strike"] == strike) &
+        (full_chain["strike"] == strike)
+        &
         (full_chain["type"] == "PE")
     ]
 
@@ -985,13 +1137,12 @@ for strike in display_strikes:
             else np.nan
     })
 
-
 option_table = pd.DataFrame(
     rows
 )
 
 # =========================================================
-# FORMAT DISPLAY
+# FORMAT TABLE
 # =========================================================
 display_table = option_table.copy()
 
@@ -1039,11 +1190,11 @@ for col in [
             else "-"
     )
 
-display_table["STRIKE"] = display_table[
-    "STRIKE"
-].map(
-    lambda x:
-        f"{x:,.0f}"
+display_table["STRIKE"] = (
+    display_table["STRIKE"].map(
+        lambda x:
+            f"{x:,.0f}"
+    )
 )
 
 st.dataframe(
@@ -1056,14 +1207,17 @@ st.dataframe(
 # IV NOTE
 # =========================================================
 st.caption(
-    "IV Zerodha quote से direct नहीं लिया गया है; "
-    "यह Black-Scholes model से live option LTP के आधार पर calculate किया गया है."
+    "CE IV / PE IV Zerodha API से direct नहीं लिया गया है। "
+    "यह live option LTP, NIFTY Spot, Strike और Expiry के आधार पर "
+    "Black-Scholes model से calculate किया गया है।"
 )
 
 # =========================================================
-# CURRENT OPTION SIGNAL
+# OPTION SIGNAL ENGINE
 # =========================================================
-st.subheader("🎯 OPTION SIGNAL ENGINE")
+st.subheader(
+    "🎯 OPTION SIGNAL ENGINE"
+)
 
 if nifty_technical:
 
@@ -1090,11 +1244,10 @@ if nifty_technical:
             )
 
 # =========================================================
-# IMPORTANT NOTE
+# NEXT STAGE
 # =========================================================
 st.info(
-    "अगले चरण में वास्तविक OI Change %, Volume Change %, "
-    "और 30–60 सेकंड auto-refresh जोड़ सकते हैं। "
-    "ये values previous live snapshot से calculate की जाएंगी; "
-    "कोई simulated data इस्तेमाल नहीं होगा."
+    "अगले चरण में वास्तविक OI Change %, "
+    "Volume Change %, और 30–60 सेकंड Auto Refresh "
+    "जोड़ा जा सकता है। कोई simulated data इस्तेमाल नहीं होगा।"
 )

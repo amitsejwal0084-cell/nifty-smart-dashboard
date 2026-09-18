@@ -1,7 +1,6 @@
 import streamlit as st
-import pandas as pd
-from datetime import datetime
 from kiteconnect import KiteConnect
+from urllib.parse import urlparse
 
 
 # =========================================================
@@ -16,34 +15,115 @@ st.set_page_config(
 
 
 # =========================================================
-# KITE CONNECTION
+# SESSION STATE
 # =========================================================
 
-def get_kite():
+if "access_token" not in st.session_state:
+    st.session_state.access_token = None
+
+if "kite_user" not in st.session_state:
+    st.session_state.kite_user = None
+
+
+# =========================================================
+# READ STREAMLIT SECRETS
+# =========================================================
+
+try:
+
+    API_KEY = st.secrets["KITE_API_KEY"]
+    API_SECRET = st.secrets["KITE_API_SECRET"]
+
+except Exception:
+
+    st.error("❌ Zerodha API credentials configured नहीं हैं.")
+
+    st.info(
+        "Streamlit → Manage app → Settings → Secrets में "
+        "KITE_API_KEY और KITE_API_SECRET डालें."
+    )
+
+    st.stop()
+
+
+# =========================================================
+# CREATE KITE OBJECT
+# =========================================================
+
+kite = KiteConnect(
+    api_key=API_KEY
+)
+
+
+# =========================================================
+# CHECK REQUEST TOKEN
+# =========================================================
+
+request_token = st.query_params.get("request_token")
+
+
+# =========================================================
+# GENERATE ACCESS TOKEN
+# =========================================================
+
+if request_token and st.session_state.access_token is None:
 
     try:
 
-        api_key = st.secrets["KITE_API_KEY"]
-        access_token = st.secrets["KITE_ACCESS_TOKEN"]
+        session_data = kite.generate_session(
+            request_token,
+            api_secret=API_SECRET
+        )
 
-        kite = KiteConnect(api_key=api_key)
-        kite.set_access_token(access_token)
+        access_token = session_data["access_token"]
 
-        return kite
+        st.session_state.access_token = access_token
+
+        st.session_state.kite_user = session_data.get(
+            "user_name",
+            session_data.get("user_id", "Zerodha User")
+        )
+
+        # Request token को URL से हटाएँ
+        st.query_params.clear()
+
+        st.success(
+            "🟢 Zerodha Login Successful!"
+        )
+
+        st.rerun()
 
     except Exception as e:
 
-        return None
+        st.error(
+            "❌ Zerodha Login / Token Exchange Failed"
+        )
+
+        st.code(str(e))
+
+        st.info(
+            "Request token नया होना चाहिए और कुछ मिनट में expire हो जाता है."
+        )
 
 
-kite = get_kite()
+# =========================================================
+# SET ACCESS TOKEN
+# =========================================================
+
+if st.session_state.access_token:
+
+    kite.set_access_token(
+        st.session_state.access_token
+    )
 
 
 # =========================================================
 # HEADER
 # =========================================================
 
-st.title("📈 NIFTY Smart Technical Analysis Dashboard")
+st.title(
+    "📈 NIFTY Smart Technical Analysis Dashboard"
+)
 
 st.caption(
     "Zerodha Kite Connect • Live Market Analysis"
@@ -51,39 +131,60 @@ st.caption(
 
 
 # =========================================================
-# CONNECTION STATUS
+# CONNECTION
 # =========================================================
 
-if kite is not None:
+if st.session_state.access_token:
 
     try:
 
         profile = kite.profile()
 
         st.success(
-            f"🟢 Zerodha Connected — {profile.get('user_name', 'User')}"
+            f"🟢 Zerodha Connected — "
+            f"{profile.get('user_name', 'User')}"
         )
 
-    except Exception:
+        st.write(
+            f"User ID: `{profile.get('user_id', '')}`"
+        )
+
+    except Exception as e:
 
         st.error(
-            "🔴 Zerodha connection failed. Access Token check करें."
+            "🔴 Access Token invalid या expired है."
         )
+
+        st.code(str(e))
 
 else:
 
     st.warning(
-        "🟡 Zerodha credentials अभी configure नहीं हैं."
+        "🟡 Zerodha अभी connected नहीं है."
+    )
+
+    st.write(
+        "Live market data शुरू करने के लिए पहले Zerodha Login करें."
+    )
+
+    login_url = kite.login_url()
+
+    st.link_button(
+        "🔐 LOGIN WITH ZERODHA",
+        login_url,
+        use_container_width=True
     )
 
 
 # =========================================================
-# MARKET DATA
+# MARKET OVERVIEW
 # =========================================================
 
 st.divider()
 
-st.header("📊 Market Overview")
+st.header(
+    "📊 Market Overview"
+)
 
 
 col1, col2, col3, col4 = st.columns(4)
@@ -127,68 +228,38 @@ with col4:
 
 st.divider()
 
-st.header("📈 Technical Analysis")
-
-
-technical_data = {
-
-    "Parameter": [
-
-        "LTP",
-        "RSI (14)",
-        "VWAP",
-        "EMA 9",
-        "EMA 20",
-        "EMA 50",
-        "EMA 200",
-        "MACD",
-        "ATR",
-        "Volume",
-        "Volume Change"
-
-    ],
-
-    "Value": [
-
-        "—",
-        "—",
-        "—",
-        "—",
-        "—",
-        "—",
-        "—",
-        "—",
-        "—",
-        "—",
-        "—"
-
-    ],
-
-    "Status": [
-
-        "Waiting",
-        "Waiting",
-        "Waiting",
-        "Waiting",
-        "Waiting",
-        "Waiting",
-        "Waiting",
-        "Waiting",
-        "Waiting",
-        "Waiting",
-        "Waiting"
-
-    ]
-}
-
-
-technical_df = pd.DataFrame(
-    technical_data
+st.header(
+    "📈 Technical Analysis"
 )
 
 
+technical_rows = [
+
+    ["LTP", "—", "Waiting"],
+    ["RSI (14)", "—", "Waiting"],
+    ["VWAP", "—", "Waiting"],
+    ["EMA 9", "—", "Waiting"],
+    ["EMA 20", "—", "Waiting"],
+    ["EMA 50", "—", "Waiting"],
+    ["EMA 200", "—", "Waiting"],
+    ["MACD", "—", "Waiting"],
+    ["ATR", "—", "Waiting"],
+    ["Volume", "—", "Waiting"],
+    ["Volume Change", "—", "Waiting"],
+
+]
+
+
 st.dataframe(
-    technical_df,
+
+    technical_rows,
+
+    column_config={
+        0: "Parameter",
+        1: "Value",
+        2: "Status"
+    },
+
     use_container_width=True,
     hide_index=True
 )
@@ -200,15 +271,19 @@ st.dataframe(
 
 st.divider()
 
-st.header("🎯 Signal Engine")
+st.header(
+    "🎯 Signal Engine"
+)
 
 
-signal1, signal2, signal3 = st.columns(3)
+s1, s2, s3 = st.columns(3)
 
 
-with signal1:
+with s1:
 
-    st.subheader("NIFTY")
+    st.subheader(
+        "NIFTY"
+    )
 
     st.warning(
         "🟡 NO TRADE"
@@ -219,9 +294,11 @@ with signal1:
     )
 
 
-with signal2:
+with s2:
 
-    st.subheader("BANKNIFTY")
+    st.subheader(
+        "BANKNIFTY"
+    )
 
     st.warning(
         "🟡 NO TRADE"
@@ -232,9 +309,11 @@ with signal2:
     )
 
 
-with signal3:
+with s3:
 
-    st.subheader("Market")
+    st.subheader(
+        "Overall Market"
+    )
 
     st.warning(
         "🟡 WAITING"
@@ -247,47 +326,34 @@ with signal3:
 
 st.divider()
 
-st.header("🔗 Option Market Analysis")
-
-
-option_data = {
-
-    "Parameter": [
-
-        "ATM Strike",
-        "Call OI",
-        "Put OI",
-        "Call OI Change",
-        "Put OI Change",
-        "PCR",
-        "IV",
-        "Max Pain"
-
-    ],
-
-    "Value": [
-
-        "—",
-        "—",
-        "—",
-        "—",
-        "—",
-        "—",
-        "—",
-        "—"
-
-    ]
-
-}
-
-
-option_df = pd.DataFrame(
-    option_data
+st.header(
+    "🔗 Option Market Analysis"
 )
 
 
+option_rows = [
+
+    ["ATM Strike", "—"],
+    ["Call OI", "—"],
+    ["Put OI", "—"],
+    ["Call OI Change", "—"],
+    ["Put OI Change", "—"],
+    ["PCR", "—"],
+    ["IV", "—"],
+    ["Max Pain", "—"],
+
+]
+
+
 st.dataframe(
-    option_df,
+
+    option_rows,
+
+    column_config={
+        0: "Parameter",
+        1: "Value"
+    },
+
     use_container_width=True,
     hide_index=True
 )
@@ -299,7 +365,9 @@ st.dataframe(
 
 st.divider()
 
-st.header("💰 Trade Plan")
+st.header(
+    "💰 Trade Plan"
+)
 
 
 t1, t2, t3, t4 = st.columns(4)
@@ -344,9 +412,5 @@ with t4:
 st.divider()
 
 st.caption(
-    f"Updated: {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}"
-)
-
-st.caption(
-    "Live market engine अगले चरण में activate किया जाएगा."
+    "⚡ Live tick-by-tick WebSocket engine अगला चरण है."
 )

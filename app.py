@@ -1101,6 +1101,29 @@ final_table = final_table.sort_values(
     "Strike"
 )
 
+# Replace missing CE/PE values with 0
+numeric_cols = [
+    "CE LTP",
+    "CE OI",
+    "CE OI Chg %",
+    "CE Volume",
+    "CE Vol Chg %",
+    "CE IV",
+    "PE LTP",
+    "PE OI",
+    "PE OI Chg %",
+    "PE Volume",
+    "PE Vol Chg %",
+    "PE IV"
+]
+
+for col in numeric_cols:
+    if col in final_table.columns:
+        final_table[col] = pd.to_numeric(
+            final_table[col],
+            errors="coerce"
+        )
+
 st.dataframe(
     final_table,
     use_container_width=True,

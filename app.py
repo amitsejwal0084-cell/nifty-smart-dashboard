@@ -1005,9 +1005,8 @@ for _, row in atm_options.iterrows():
 # SAVE SNAPSHOT
 # ---------------------------------------------------------
 
-st.session_state.option_snapshot[
-    snapshot_key
-] = new_snapshot
+if new_snapshot:
+    st.session_state.option_snapshot[snapshot_key] = new_snapshot.copy()
 
 option_df = pd.DataFrame(rows)
 

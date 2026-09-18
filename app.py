@@ -1045,82 +1045,63 @@ pe_df = option_df[
     option_df["Type"] == "PE"
 ].copy()
 
-# Keep only required columns
-ce_df = ce_df[
-    [
-        "Strike",
-        "LTP",
-        "OI",
-        "OI Chg %",
-        "Volume",
-        "Vol Chg %",
-        "IV"
-    ]
-].rename(
-    columns={
-        "LTP": "CE LTP",
-        "OI": "CE OI",
-        "OI Chg %": "CE OI Chg %",
-        "Volume": "CE Volume",
-        "Vol Chg %": "CE Vol Chg %",
-        "IV": "CE IV"
+# CE data by Strike
+ce_data = {}
+
+for _, r in ce_df.iterrows():
+    ce_data[float(r["Strike"])] = {
+        "CE LTP": r["LTP"],
+        "CE OI": r["OI"],
+        "CE OI Chg %": r["OI Chg %"],
+        "CE Volume": r["Volume"],
+        "CE Vol Chg %": r["Vol Chg %"],
+        "CE IV": r["IV"]
     }
-)
 
-pe_df = pe_df[
-    [
-        "Strike",
-        "LTP",
-        "OI",
-        "OI Chg %",
-        "Volume",
-        "Vol Chg %",
-        "IV"
-    ]
-].rename(
-    columns={
-        "LTP": "PE LTP",
-        "OI": "PE OI",
-        "OI Chg %": "PE OI Chg %",
-        "Volume": "PE Volume",
-        "Vol Chg %": "PE Vol Chg %",
-        "IV": "PE IV"
+# PE data by Strike
+pe_data = {}
+
+for _, r in pe_df.iterrows():
+    pe_data[float(r["Strike"])] = {
+        "PE LTP": r["LTP"],
+        "PE OI": r["OI"],
+        "PE OI Chg %": r["OI Chg %"],
+        "PE Volume": r["Volume"],
+        "PE Vol Chg %": r["Vol Chg %"],
+        "PE IV": r["IV"]
     }
+
+# All strikes
+all_strikes = sorted(
+    set(ce_data.keys()) |
+    set(pe_data.keys())
 )
 
-# Merge CE and PE using Strike
-final_table = pd.merge(
-    ce_df,
-    pe_df,
-    on="Strike",
-    how="outer"
-)
+display_rows = []
 
-final_table = final_table.sort_values(
-    "Strike"
-).reset_index(drop=True)
+for strike in all_strikes:
 
-# Convert numeric columns
-numeric_cols = [
-    "CE LTP",
-    "CE OI",
-    "CE OI Chg %",
-    "CE Volume",
-    "CE Vol Chg %",
-    "CE IV",
-    "PE LTP",
-    "PE OI",
-    "PE OI Chg %",
-    "PE Volume",
-    "PE Vol Chg %",
-    "PE IV"
-]
+    row = {
+        "Strike": strike,
 
-for col in numeric_cols:
-    final_table[col] = pd.to_numeric(
-        final_table[col],
-        errors="coerce"
-    )
+        "CE LTP": ce_data.get(strike, {}).get("CE LTP"),
+        "CE OI": ce_data.get(strike, {}).get("CE OI"),
+        "CE OI Chg %": ce_data.get(strike, {}).get("CE OI Chg %"),
+        "CE Volume": ce_data.get(strike, {}).get("CE Volume"),
+        "CE Vol Chg %": ce_data.get(strike, {}).get("CE Vol Chg %"),
+        "CE IV": ce_data.get(strike, {}).get("CE IV"),
+
+        "PE LTP": pe_data.get(strike, {}).get("PE LTP"),
+        "PE OI": pe_data.get(strike, {}).get("PE OI"),
+        "PE OI Chg %": pe_data.get(strike, {}).get("PE OI Chg %"),
+        "PE Volume": pe_data.get(strike, {}).get("PE Volume"),
+        "PE Vol Chg %": pe_data.get(strike, {}).get("PE Vol Chg %"),
+        "PE IV": pe_data.get(strike, {}).get("PE IV")
+    }
+
+    display_rows.append(row)
+
+final_table = pd.DataFrame(display_rows)
 
 st.dataframe(
     final_table,

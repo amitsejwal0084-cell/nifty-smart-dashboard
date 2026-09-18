@@ -1036,6 +1036,7 @@ st.dataframe(
 # =========================================================
 # DISPLAY CE / PE SIDE BY SIDE
 # =========================================================
+
 ce_df = option_df[
     option_df["Type"] == "CE"
 ].copy()
@@ -1044,7 +1045,18 @@ pe_df = option_df[
     option_df["Type"] == "PE"
 ].copy()
 
-ce_df = ce_df.rename(
+# Keep only required columns
+ce_df = ce_df[
+    [
+        "Strike",
+        "LTP",
+        "OI",
+        "OI Chg %",
+        "Volume",
+        "Vol Chg %",
+        "IV"
+    ]
+].rename(
     columns={
         "LTP": "CE LTP",
         "OI": "CE OI",
@@ -1055,7 +1067,17 @@ ce_df = ce_df.rename(
     }
 )
 
-pe_df = pe_df.rename(
+pe_df = pe_df[
+    [
+        "Strike",
+        "LTP",
+        "OI",
+        "OI Chg %",
+        "Volume",
+        "Vol Chg %",
+        "IV"
+    ]
+].rename(
     columns={
         "LTP": "PE LTP",
         "OI": "PE OI",
@@ -1066,30 +1088,7 @@ pe_df = pe_df.rename(
     }
 )
 
-ce_df = ce_df[
-    [
-        "Strike",
-        "CE LTP",
-        "CE OI",
-        "CE OI Chg %",
-        "CE Volume",
-        "CE Vol Chg %",
-        "CE IV"
-    ]
-]
-
-pe_df = pe_df[
-    [
-        "Strike",
-        "PE LTP",
-        "PE OI",
-        "PE OI Chg %",
-        "PE Volume",
-        "PE Vol Chg %",
-        "PE IV"
-    ]
-]
-
+# Merge CE and PE using Strike
 final_table = pd.merge(
     ce_df,
     pe_df,
@@ -1099,9 +1098,9 @@ final_table = pd.merge(
 
 final_table = final_table.sort_values(
     "Strike"
-)
+).reset_index(drop=True)
 
-# Replace missing CE/PE values with 0
+# Convert numeric columns
 numeric_cols = [
     "CE LTP",
     "CE OI",
@@ -1118,11 +1117,10 @@ numeric_cols = [
 ]
 
 for col in numeric_cols:
-    if col in final_table.columns:
-        final_table[col] = pd.to_numeric(
-            final_table[col],
-            errors="coerce"
-        )
+    final_table[col] = pd.to_numeric(
+        final_table[col],
+        errors="coerce"
+    )
 
 st.dataframe(
     final_table,

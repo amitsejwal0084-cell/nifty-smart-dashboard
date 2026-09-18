@@ -781,35 +781,28 @@ with right:
 # =========================================================
 # OPTION CHAIN
 # =========================================================
+
 st.subheader("📊 NIFTY OPTION CHAIN")
 
+# ---------------------------------------------------------
+# NIFTY OPTIONS
+# ---------------------------------------------------------
+
 options = nfo[
-    (nfo["name"] == "NIFTY")
-    &
-    (nfo["instrument_type"].isin([
-        "CE",
-        "PE"
-    ]))
+    (nfo["name"] == "NIFTY") &
+    (nfo["instrument_type"].isin(["CE", "PE"]))
 ].copy()
 
-options["expiry"] = pd.to_datetime(
-    options["expiry"]
-)
+options["expiry"] = pd.to_datetime(options["expiry"])
 
-today = pd.Timestamp(
-    dt.date.today()
-)
+today = pd.Timestamp(dt.date.today())
 
 options = options[
     options["expiry"] >= today
 ]
 
 if options.empty:
-
-    st.error(
-        "NIFTY options नहीं मिले।"
-    )
-
+    st.error("NIFTY options नहीं मिले।")
     st.stop()
 
 expiries = sorted(
@@ -825,14 +818,13 @@ expiry_options = options[
     options["expiry"].dt.date == expiry
 ].copy()
 
-# =========================================================
+# ---------------------------------------------------------
 # ATM
-# =========================================================
-spot = nifty_price
+# ---------------------------------------------------------
 
-atm = round(
-    spot / 50
-) * 50
+spot = float(nifty_price)
+
+atm = round(spot / 50) * 50
 
 st.write(
     f"**NIFTY Spot:** {spot:,.2f}"
@@ -847,56 +839,37 @@ display_strikes = [
     for i in range(-3, 4)
 ]
 
-# =========================================================
-# IMPORTANT:
-# FETCH ONLY ATM ±3 LIVE QUOTES
-# =========================================================
+# ---------------------------------------------------------
+# ATM ±3 OPTIONS
+# ---------------------------------------------------------
+
 atm_options = expiry_options[
-    expiry_options["strike"].isin(
-        display_strikes
-    )
+    expiry_options["strike"].isin(display_strikes)
 ].copy()
 
-quote_keys = []
+quote_keys = [
+    f"NFO:{row['tradingsymbol']}"
+    for _, row in atm_options.iterrows()
+]
 
-for _, row in atm_options.iterrows():
-
-    quote_keys.append(
-        f"NFO:{row['tradingsymbol']}"
-    )
-
-# Remove duplicates
-quote_keys = list(
-    dict.fromkeys(
-        quote_keys
-    )
-)
+quote_keys = list(dict.fromkeys(quote_keys))
 
 live_quotes = {}
 
 if quote_keys:
-
     try:
-
-        # One request = max 500 instruments
-        live_quotes = kite.quote(
-            quote_keys
-        )
+        live_quotes = kite.quote(quote_keys) or {}
 
     except Exception as e:
-
         st.error(
             f"Option live quote error: {e}"
         )
 
-# =========================================================
-# BUILD ATM ±3 DATA
-# =========================================================
-rows = []
+# ---------------------------------------------------------
+# SNAPSHOT FOR OI / VOLUME CHANGE
+# ---------------------------------------------------------
 
-snapshot_key = (
-    expiry.strftime("%Y-%m-%d")
-)
+snapshot_key = expiry.strftime("%Y-%m-%d")
 
 old_snapshot = st.session_state.option_snapshot.get(
     snapshot_key,
@@ -905,49 +878,67 @@ old_snapshot = st.session_state.option_snapshot.get(
 
 new_snapshot = {}
 
+# ---------------------------------------------------------
+# BUILD OPTION DATA
+# ---------------------------------------------------------
+
+rows = []
+
+expiry_dt = dt.datetime.combine(
+    expiry,
+    dt.time(15, 30)
+)
+
+seconds = (
+    expiry_dt - dt.datetime.now()
+).total_seconds()
+
+time_years = max(
+    seconds / (365 * 24 * 60 * 60),
+    0.000001
+)
+
 for _, row in atm_options.iterrows():
 
     symbol = row["tradingsymbol"]
 
     key = f"NFO:{symbol}"
 
-    q = live_quotes.get(
+    quote = live_quotes.get(
         key,
         {}
     )
 
-    # Direct Kite fields
     ltp = safe_float(
-        q.get("last_price")
-    )
-
-    volume = safe_float(
-        q.get("volume")
+        quote.get("last_price")
     )
 
     oi = safe_float(
-        q.get("oi")
+        quote.get("oi")
+    )
+
+    volume = safe_float(
+        quote.get("volume")
     )
 
     # -----------------------------------------------------
-    # Previous snapshot
+    # Previous Snapshot
     # -----------------------------------------------------
+
     old = old_snapshot.get(
-        symbol
+        symbol,
+        {}
     )
+
+    old_oi = old.get("oi")
+    old_volume = old.get("volume")
 
     oi_change = np.nan
     volume_change = np.nan
 
-    if old:
+    if old_oi is not None:
 
-        old_oi = safe_float(
-            old.get("oi")
-        )
-
-        old_volume = safe_float(
-            old.get("volume")
-        )
+        old_oi = safe_float(old_oi)
 
         if old_oi > 0:
 
@@ -956,12 +947,18 @@ for _, row in atm_options.iterrows():
                 / old_oi
             ) * 100
 
+    if old_volume is not None:
+
+        old_volume = safe_float(old_volume)
+
         if old_volume > 0:
 
             volume_change = (
                 (volume - old_volume)
                 / old_volume
             ) * 100
+
+    # Save current snapshot
 
     new_snapshot[symbol] = {
         "oi": oi,
@@ -971,265 +968,7 @@ for _, row in atm_options.iterrows():
     # -----------------------------------------------------
     # IV
     # -----------------------------------------------------
-    expiry_dt = dt.datetime.combine(
-        expiry,
-        dt.time(15, 30)
-    )
 
-    seconds = (
-        expiry_dt
-        - dt.datetime.now()
-    ).total_seconds()
-
-    time_years = max(
-        seconds / (
-            365 * 24 * 60 * 60
-        ),
-        0.000001
-    )
-
-    iv = calculate_iv(
-        ltp,
-        spot,
-        float(row["strike"]),
-        time_years,
-        row["instrument_type"]
-    )
-
-# =========================================================
-# REAL OI / VOLUME CHANGE %
-# =========================================================
-
-previous = st.session_state.option_snapshot.get(
-    snapshot_key,
-    {}
-)
-
-# Current live values
-current_oi = float(oi or 0)
-current_volume = float(volume or 0)
-
-# Previous values
-previous_data = previous.get(symbol, {})
-
-previous_oi = previous_data.get("oi")
-previous_volume = previous_data.get("volume")
-
-# OI Change %
-if previous_oi is not None and float(previous_oi) > 0:
-    oi_change = (
-        (current_oi - float(previous_oi))
-        / float(previous_oi)
-    ) * 100
-else:
-    oi_change = None
-
-# Volume Change %
-if previous_volume is not None and float(previous_volume) > 0:
-    volume_change = (
-        (current_volume - float(previous_volume))
-        / float(previous_volume)
-    ) * 100
-else:
-    volume_change = None
-
-# Save current values for next refresh
-new_snapshot[symbol] = {
-    "oi": current_oi,
-    "volume": current_volume
-}
-
-rows.append({
-
-    "Strike": float(
-        row["strike"]
-    ),
-
-    "Type": row["instrument_type"],
-
-    "Symbol": symbol,
-
-    "LTP": ltp,
-
-    "OI": current_oi,
-
-    "OI Chg %": oi_change,
-
-    "Volume": current_volume,
-
-    "Vol Chg %": volume_change,
-
-    "IV": iv
-})
-
-# Save snapshot
-st.session_state.option_snapshot[
-    snapshot_key
-] = new_snapshot
-
-option_df = pd.DataFrame(
-    rows
-)
-st.write("DEBUG - LIVE OPTION DATA")
-st.dataframe(
-    option_df[["Strike", "Type", "LTP", "OI", "Volume"]],
-    use_container_width=True
-)
-
-# =========================================================
-# DISPLAY CE / PE SIDE BY SIDE
-# =========================================================
-
-ce_df = option_df[
-    option_df["Type"] == "CE"
-].copy()
-
-pe_df = option_df[
-    option_df["Type"] == "PE"
-].copy()
-
-# CE data by Strike
-ce_data = {}
-
-for _, r in ce_df.iterrows():
-    ce_data[float(r["Strike"])] = {
-        "CE LTP": r["LTP"],
-        "CE OI": r["OI"],
-        "CE OI Chg %": r["OI Chg %"],
-        "CE Volume": r["Volume"],
-        "CE Vol Chg %": r["Vol Chg %"],
-        "CE IV": r["IV"]
-    }
-
-# PE data by Strike
-pe_data = {}
-
-for _, r in pe_df.iterrows():
-    pe_data[float(r["Strike"])] = {
-        "PE LTP": r["LTP"],
-        "PE OI": r["OI"],
-        "PE OI Chg %": r["OI Chg %"],
-        "PE Volume": r["Volume"],
-        "PE Vol Chg %": r["Vol Chg %"],
-        "PE IV": r["IV"]
-    }
-
-# All strikes
-all_strikes = sorted(
-    set(ce_data.keys()) |
-    set(pe_data.keys())
-)
-
-display_rows = []
-
-# =========================================================
-# NIFTY OPTION CHAIN
-# =========================================================
-
-st.subheader("📊 NIFTY OPTION CHAIN")
-
-# NIFTY expiry
-nifty_expiries = sorted(
-    nfo_df[
-        (nfo_df["name"] == "NIFTY") &
-        (nfo_df["instrument_type"].isin(["CE", "PE"]))
-    ]["expiry"].dropna().unique()
-)
-
-if not nifty_expiries:
-    st.error("NIFTY option expiry नहीं मिली।")
-    st.stop()
-
-selected_expiry = st.selectbox(
-    "NIFTY Expiry",
-    nifty_expiries
-)
-
-spot = float(nifty_spot)
-
-# ATM strike
-strike_step = 50
-atm_strike = round(
-    spot / strike_step
-) * strike_step
-
-st.write(
-    f"**NIFTY Spot:** {spot:,.2f}"
-)
-
-st.write(
-    f"**ATM Strike:** {atm_strike:,.0f}"
-)
-
-# ATM ±3
-selected_strikes = [
-    atm_strike + (i * strike_step)
-    for i in range(-3, 4)
-]
-
-chain_df = nfo_df[
-    (nfo_df["name"] == "NIFTY") &
-    (nfo_df["expiry"] == selected_expiry) &
-    (nfo_df["instrument_type"].isin(["CE", "PE"])) &
-    (nfo_df["strike"].isin(selected_strikes))
-].copy()
-
-# =========================================================
-# LIVE QUOTES
-# =========================================================
-
-symbols = []
-
-for _, row in chain_df.iterrows():
-
-    symbols.append(
-        f"NFO:{row['tradingsymbol']}"
-    )
-
-live_quotes = {}
-
-if symbols:
-
-    try:
-
-        quote_response = kite.quote(symbols)
-
-        live_quotes = quote_response or {}
-
-    except Exception as e:
-
-        st.error(
-            f"Option quote error: {e}"
-        )
-
-# =========================================================
-# BUILD OPTION DATA
-# =========================================================
-
-rows = []
-
-for _, row in chain_df.iterrows():
-
-    symbol = f"NFO:{row['tradingsymbol']}"
-
-    quote = live_quotes.get(
-        symbol,
-        {}
-    )
-
-    ltp = float(
-        quote.get("last_price", 0) or 0
-    )
-
-    oi = int(
-        quote.get("oi", 0) or 0
-    )
-
-    volume = int(
-        quote.get("volume", 0) or 0
-    )
-
-    # IV is model calculated
     iv = calculate_iv(
         ltp,
         spot,
@@ -1252,22 +991,49 @@ for _, row in chain_df.iterrows():
 
         "OI": oi,
 
-        "OI Chg %": 0.0,
+        "OI Chg %": oi_change,
 
         "Volume": volume,
 
-        "Vol Chg %": 0.0,
+        "Vol Chg %": volume_change,
 
         "IV": iv
 
     })
 
-option_df = pd.DataFrame(
-    rows
+# ---------------------------------------------------------
+# SAVE SNAPSHOT
+# ---------------------------------------------------------
+
+st.session_state.option_snapshot[
+    snapshot_key
+] = new_snapshot
+
+option_df = pd.DataFrame(rows)
+
+# ---------------------------------------------------------
+# DEBUG LIVE DATA
+# ---------------------------------------------------------
+
+st.write(
+    "DEBUG - LIVE OPTION DATA"
+)
+
+st.dataframe(
+    option_df[
+        [
+            "Strike",
+            "Type",
+            "LTP",
+            "OI",
+            "Volume"
+        ]
+    ],
+    use_container_width=True
 )
 
 # =========================================================
-# DISPLAY CE / PE
+# DISPLAY CE / PE SIDE BY SIDE
 # =========================================================
 
 ce_df = option_df[
@@ -1278,39 +1044,33 @@ pe_df = option_df[
     option_df["Type"] == "PE"
 ].copy()
 
+# ---------------------------------------------------------
+# CE
+# ---------------------------------------------------------
+
 ce_df = ce_df.rename(
     columns={
-
         "LTP": "CE LTP",
-
         "OI": "CE OI",
-
         "OI Chg %": "CE OI Chg %",
-
         "Volume": "CE Volume",
-
         "Vol Chg %": "CE Vol Chg %",
-
         "IV": "CE IV"
-
     }
 )
 
+# ---------------------------------------------------------
+# PE
+# ---------------------------------------------------------
+
 pe_df = pe_df.rename(
     columns={
-
         "LTP": "PE LTP",
-
         "OI": "PE OI",
-
         "OI Chg %": "PE OI Chg %",
-
         "Volume": "PE Volume",
-
         "Vol Chg %": "PE Vol Chg %",
-
         "IV": "PE IV"
-
     }
 )
 
@@ -1338,6 +1098,10 @@ pe_df = pe_df[
     ]
 ]
 
+# ---------------------------------------------------------
+# MERGE CE + PE
+# ---------------------------------------------------------
+
 final_table = pd.merge(
     ce_df,
     pe_df,
@@ -1359,7 +1123,9 @@ st.dataframe(
 # OPTION DATA STATUS
 # =========================================================
 
-st.subheader("🔎 Option Data Status")
+st.subheader(
+    "🔎 Option Data Status"
+)
 
 quote_count = len(live_quotes)
 
@@ -1374,21 +1140,18 @@ non_zero_volume = int(
 d1, d2, d3 = st.columns(3)
 
 with d1:
-
     st.metric(
         "Live Quotes Received",
         quote_count
     )
 
 with d2:
-
     st.metric(
         "Contracts with OI",
         f"{non_zero_oi}/{len(option_df)}"
     )
 
 with d3:
-
     st.metric(
         "Contracts with Volume",
         f"{non_zero_volume}/{len(option_df)}"

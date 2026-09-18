@@ -1159,6 +1159,7 @@ elif non_zero_oi == 0:
 option_df["type"] = option_df["Type"]
 option_df["oi"] = option_df["OI"]
 option_df["volume"] = option_df["Volume"]
+option_df["strike"] = option_df["Strike"]
 
 pcr = calculate_pcr(
     option_df

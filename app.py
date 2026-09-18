@@ -1032,6 +1032,29 @@ st.dataframe(
 )
 
 # =========================================================
+# OI / VOLUME CHANGE DEBUG
+# =========================================================
+
+debug_change = option_df[
+    [
+        "Strike",
+        "Type",
+        "OI",
+        "OI Chg %",
+        "Volume",
+        "Vol Chg %"
+    ]
+].copy()
+
+st.write("🔎 OI / Volume Change Check")
+
+st.dataframe(
+    debug_change,
+    use_container_width=True,
+    hide_index=True
+)
+
+# =========================================================
 # DISPLAY CE / PE SIDE BY SIDE
 # =========================================================
 

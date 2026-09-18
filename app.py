@@ -996,28 +996,71 @@ for _, row in atm_options.iterrows():
         row["instrument_type"]
     )
 
-    rows.append({
+# =========================================================
+# REAL OI / VOLUME CHANGE %
+# =========================================================
 
-        "Strike": float(
-            row["strike"]
-        ),
+previous = st.session_state.option_snapshot.get(
+    snapshot_key,
+    {}
+)
 
-        "Type": row["instrument_type"],
+# Current live values
+current_oi = float(oi or 0)
+current_volume = float(volume or 0)
 
-        "Symbol": symbol,
+# Previous values
+previous_data = previous.get(symbol, {})
 
-        "LTP": ltp,
+previous_oi = previous_data.get("oi")
+previous_volume = previous_data.get("volume")
 
-        "OI": oi,
+# OI Change %
+if previous_oi is not None and float(previous_oi) > 0:
+    oi_change = (
+        (current_oi - float(previous_oi))
+        / float(previous_oi)
+    ) * 100
+else:
+    oi_change = None
 
-        "OI Chg %": oi_change,
+# Volume Change %
+if previous_volume is not None and float(previous_volume) > 0:
+    volume_change = (
+        (current_volume - float(previous_volume))
+        / float(previous_volume)
+    ) * 100
+else:
+    volume_change = None
 
-        "Volume": volume,
+# Save current values for next refresh
+new_snapshot[symbol] = {
+    "oi": current_oi,
+    "volume": current_volume
+}
 
-        "Vol Chg %": volume_change,
+rows.append({
 
-        "IV": iv
-    })
+    "Strike": float(
+        row["strike"]
+    ),
+
+    "Type": row["instrument_type"],
+
+    "Symbol": symbol,
+
+    "LTP": ltp,
+
+    "OI": current_oi,
+
+    "OI Chg %": oi_change,
+
+    "Volume": current_volume,
+
+    "Vol Chg %": volume_change,
+
+    "IV": iv
+})
 
 # Save snapshot
 st.session_state.option_snapshot[

@@ -866,12 +866,15 @@ if quote_keys:
         )
 
 # ---------------------------------------------------------
-# SNAPSHOT FOR OI / VOLUME CHANGE
+# OI / VOLUME SNAPSHOT
 # ---------------------------------------------------------
 
-snapshot_key = expiry.strftime("%Y-%m-%d")
+snapshot_key = f"NIFTY_{expiry.strftime('%Y-%m-%d')}"
 
-old_snapshot = st.session_state.option_snapshot.get(
+if "option_previous_snapshot" not in st.session_state:
+    st.session_state.option_previous_snapshot = {}
+
+old_snapshot = st.session_state.option_previous_snapshot.get(
     snapshot_key,
     {}
 )
@@ -1006,7 +1009,7 @@ for _, row in atm_options.iterrows():
 # ---------------------------------------------------------
 
 if new_snapshot:
-    st.session_state.option_snapshot[snapshot_key] = new_snapshot.copy()
+    st.session_state.option_previous_snapshot[snapshot_key] = new_snapshot.copy()
 
 option_df = pd.DataFrame(rows)
 

@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import threading
 from datetime import datetime, timedelta
-from kiteconnect import KiteConnect
+from kiteconnect import KiteConnect, KiteTicker
 
 
 # =========================================================
@@ -108,105 +109,140 @@ if st.button("🔄 Refresh"):
 
 
 # =========================================================
-# LIVE INDEX DATA
+# LIVE INDEX DATA — WebSocket Tick-by-Tick
 # =========================================================
 
 st.divider()
-st.subheader("📊 Live Market")
+st.subheader("📊 Live Market (Tick-by-Tick)")
 
 
-index_symbols = [
-    "NSE:NIFTY 50",
-    "NSE:NIFTY BANK",
-    "BSE:SENSEX",
-    "NSE:NIFTY NEXT 50",
-    "NSE:INDIA VIX"
-]
+@st.cache_resource
+def init_live_ticker(_kite, api_key, access_token):
+
+    store = {
+        "ticks": {},
+        "lock": threading.Lock(),
+        "connected": False,
+        "tokens": {},
+    }
+
+    try:
+        wanted_nse = {"NIFTY 50", "NIFTY BANK", "NIFTY NEXT 50", "INDIA VIX"}
+
+        for row in _kite.instruments("NSE"):
+            ts = row.get("tradingsymbol")
+            if ts in wanted_nse:
+                store["tokens"]["NSE:" + ts] = int(row["instrument_token"])
+
+        for row in _kite.instruments("BSE"):
+            if row.get("tradingsymbol") == "SENSEX":
+                store["tokens"]["BSE:SENSEX"] = int(row["instrument_token"])
+                break
+
+    except Exception as e:
+        store["token_error"] = str(e)
+
+    token_list = list(store["tokens"].values())
+
+    if token_list:
+
+        kws = KiteTicker(api_key, access_token)
+
+        def on_ticks(ws, ticks):
+            with store["lock"]:
+                for t in ticks:
+                    store["ticks"][t["instrument_token"]] = t
+
+        def on_connect(ws, response):
+            store["connected"] = True
+            ws.subscribe(token_list)
+            ws.set_mode(ws.MODE_QUOTE, token_list)
+
+        def on_close(ws, code, reason):
+            store["connected"] = False
+
+        kws.on_ticks = on_ticks
+        kws.on_connect = on_connect
+        kws.on_close = on_close
+
+        kws.connect(threaded=True)
+
+        store["kws"] = kws
+
+    return store
 
 
-try:
+tick_store = init_live_ticker(kite, API_KEY, access_token)
 
-    market = kite.quote(index_symbols)
 
-except Exception as e:
+def _get_live_tick(symbol):
 
-    st.error(f"Market Data Error: {e}")
-    st.stop()
+    token = tick_store["tokens"].get(symbol)
+    tick = None
+
+    if token:
+        with tick_store["lock"]:
+            tick = tick_store["ticks"].get(token)
+
+    if tick:
+        return (
+            tick.get("last_price", 0),
+            tick.get("ohlc", {}).get("close", 0)
+        )
+
+    # पहला tick आने तक (या token न मिलने पर) REST से एक बार दिखा दें
+    try:
+        q = kite.quote([symbol]).get(symbol, {})
+        return (
+            q.get("last_price", 0),
+            q.get("ohlc", {}).get("close", 0)
+        )
+    except Exception:
+        return 0, 0
 
 
 def get_ltp(symbol):
-
-    return market.get(
-        symbol,
-        {}
-    ).get(
-        "last_price",
-        0
-    )
+    last, _ = _get_live_tick(symbol)
+    return last
 
 
 def get_change(symbol):
-
-    data = market.get(symbol, {})
-
-    last = data.get("last_price", 0)
-
-    close = data.get(
-        "ohlc",
-        {}
-    ).get(
-        "close",
-        0
-    )
-
+    last, close = _get_live_tick(symbol)
     if close:
-
         return ((last - close) / close) * 100
-
     return 0
 
 
-c1, c2, c3, c4, c5 = st.columns(5)
+@st.fragment(run_every="1s")
+def render_live_market():
 
-
-with c1:
-    st.metric(
-        "NIFTY 50",
-        f"{get_ltp('NSE:NIFTY 50'):,.2f}",
-        f"{get_change('NSE:NIFTY 50'):+.2f}%"
+    status = (
+        "🟢 Live (WebSocket)"
+        if tick_store.get("connected")
+        else "🟡 कनेक्ट हो रहा है..."
     )
+    st.caption(status)
+
+    labels = [
+        ("NIFTY 50", "NSE:NIFTY 50"),
+        ("BANK NIFTY", "NSE:NIFTY BANK"),
+        ("SENSEX", "BSE:SENSEX"),
+        ("NIFTY NEXT 50", "NSE:NIFTY NEXT 50"),
+        ("INDIA VIX", "NSE:INDIA VIX"),
+    ]
+
+    cols = st.columns(5)
+
+    for col, (label, symbol) in zip(cols, labels):
+        with col:
+            st.metric(
+                label,
+                f"{get_ltp(symbol):,.2f}",
+                f"{get_change(symbol):+.2f}%"
+            )
 
 
-with c2:
-    st.metric(
-        "BANK NIFTY",
-        f"{get_ltp('NSE:NIFTY BANK'):,.2f}",
-        f"{get_change('NSE:NIFTY BANK'):+.2f}%"
-    )
-
-
-with c3:
-    st.metric(
-        "SENSEX",
-        f"{get_ltp('BSE:SENSEX'):,.2f}",
-        f"{get_change('BSE:SENSEX'):+.2f}%"
-    )
-
-
-with c4:
-    st.metric(
-        "NIFTY NEXT 50",
-        f"{get_ltp('NSE:NIFTY NEXT 50'):,.2f}",
-        f"{get_change('NSE:NIFTY NEXT 50'):+.2f}%"
-    )
-
-
-with c5:
-    st.metric(
-        "INDIA VIX",
-        f"{get_ltp('NSE:INDIA VIX'):,.2f}",
-        f"{get_change('NSE:INDIA VIX'):+.2f}%"
-    )
+render_live_market()
 
 
 # =========================================================
@@ -688,6 +724,34 @@ if not technical_df.empty:
                 trend.iloc[i] = 1 if close.iloc[i] > final_upper.iloc[i] else -1
         return trend
 
+    @st.cache_resource(ttl=4 * 3600)
+    def resolve_nifty_futures(_kite):
+        # NIFTY इंडेक्स में कभी वॉल्यूम नहीं होता (इंडेक्स खुद ट्रेड नहीं होता),
+        # इसलिए सबसे नज़दीकी expiry वाले NIFTY Futures कॉन्ट्रैक्ट का वॉल्यूम लेते हैं।
+        # ttl=4 घंटे ताकि महीने के rollover पर यह अपने-आप नए कॉन्ट्रैक्ट पर शिफ्ट हो जाए।
+        try:
+            nfo = _kite.instruments("NFO")
+            futs = [
+                r for r in nfo
+                if r.get("name") == "NIFTY"
+                and r.get("instrument_type") == "FUT"
+                and r.get("segment") == "NFO-FUT"
+            ]
+            futs.sort(key=lambda r: r["expiry"])
+            today = datetime.now().date()
+            for r in futs:
+                exp = r["expiry"]
+                exp_date = exp.date() if hasattr(exp, "date") else exp
+                if exp_date >= today:
+                    return {
+                        "token": int(r["instrument_token"]),
+                        "symbol": r["tradingsymbol"],
+                        "expiry": str(exp_date),
+                    }
+        except Exception:
+            pass
+        return None
+
     if nifty_token is None:
         st.warning("NIFTY instrument token नहीं मिला — संगम पैनल नहीं दिखाया जा सकता।")
     else:
@@ -753,18 +817,32 @@ if not technical_df.empty:
             vote = 1 if t == 1 else -1
             indicators.append(("Supertrend", "तेजी रुझान" if t == 1 else "मंदी रुझान", vote))
 
-            # वॉल्यूम पुष्टि
+            # वॉल्यूम पुष्टि — NIFTY Futures के असली ट्रेडेड वॉल्यूम से
             vote = 0
-            vol_note = "—"
-            avg_vol20 = daily_df["volume"].rolling(20).mean().iloc[-1]
-            last_vol = daily_df["volume"].iloc[-1]
-            price_chg5 = close.iloc[-1] - close.iloc[-6]
-            if pd.notna(avg_vol20) and avg_vol20 > 0:
-                ratio = last_vol / avg_vol20 * 100
-                vol_note = f"{ratio:.0f}% औसत वॉल्यूम"
-                if last_vol > avg_vol20 * 1.2:
-                    vote = 1 if price_chg5 > 0 else (-1 if price_chg5 < 0 else 0)
-            indicators.append(("वॉल्यूम पुष्टि", vol_note, vote))
+            vol_note = "Futures कॉन्ट्रैक्ट नहीं मिला"
+            fut_info = resolve_nifty_futures(kite)
+
+            if fut_info:
+                fut_df = get_historical_data(fut_info["token"], interval="day", days=40)
+
+                if not fut_df.empty and len(fut_df) >= 6:
+                    fut_df["volume"] = pd.to_numeric(fut_df["volume"], errors="coerce")
+                    lookback = min(20, len(fut_df) - 1)
+                    avg_vol = fut_df["volume"].rolling(lookback).mean().iloc[-1]
+                    last_vol = fut_df["volume"].iloc[-1]
+                    price_chg5 = close.iloc[-1] - close.iloc[-6]
+
+                    if pd.notna(avg_vol) and avg_vol > 0:
+                        ratio = last_vol / avg_vol * 100
+                        vol_note = f"{ratio:.0f}% औसत वॉल्यूम ({fut_info['symbol']})"
+                        if last_vol > avg_vol * 1.2:
+                            vote = 1 if price_chg5 > 0 else (-1 if price_chg5 < 0 else 0)
+                    else:
+                        vol_note = f"अपर्याप्त history ({fut_info['symbol']})"
+                else:
+                    vol_note = f"Futures डेटा नहीं मिला ({fut_info['symbol']})"
+
+            indicators.append(("वॉल्यूम पुष्टि (Futures)", vol_note, vote))
 
             score = sum(v for _, _, v in indicators)
             confidence = abs(score) / 6 * 100
